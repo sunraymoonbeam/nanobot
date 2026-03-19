@@ -15,7 +15,7 @@ from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import ExecToolConfig
+from nanobot.config.schema import ExecToolConfig, WebSearchConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.utils.helpers import build_assistant_message
 
@@ -29,13 +29,11 @@ class SubagentManager:
         workspace: Path,
         bus: MessageBus,
         model: str | None = None,
-        web_search_config: "WebSearchConfig | None" = None,
+        web_search_config: WebSearchConfig | None = None,
         web_proxy: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
     ):
-        from nanobot.config.schema import ExecToolConfig, WebSearchConfig
-
         self.provider = provider
         self.workspace = workspace
         self.bus = bus
@@ -113,6 +111,14 @@ class SubagentManager:
                 {"role": "user", "content": task},
             ]
 
+            # Build metadata for tracing
+            session_key = f"{origin['channel']}:{origin['chat_id']}"
+            metadata = {
+                "session_key": session_key,
+                "agent_type": "subagent",
+                "task_id": task_id,
+            }
+
             # Run agent loop (limited iterations)
             max_iterations = 15
             iteration = 0
@@ -125,6 +131,7 @@ class SubagentManager:
                     messages=messages,
                     tools=tools.get_definitions(),
                     model=self.model,
+                    metadata=metadata,
                 )
 
                 if response.has_tool_calls:
