@@ -132,7 +132,6 @@ class AgentLoop:
         self._config_defaults: dict[str, Any] = {
             "max_iterations": max_iterations,
             "context_window_tokens": context_window_tokens,
-            "context_budget_tokens": context_budget_tokens,
             "model": self.model,
         }
         self._runtime_vars: dict[str, Any] = {}
@@ -207,9 +206,6 @@ class AgentLoop:
         if not (4096 <= self.context_window_tokens <= 1_000_000):
             logger.warning("Watchdog: resetting context_window_tokens {} -> {}", self.context_window_tokens, defaults["context_window_tokens"])
             self.context_window_tokens = defaults["context_window_tokens"]
-        if not (0 <= self.context_budget_tokens <= 1_000_000):
-            logger.warning("Watchdog: resetting context_budget_tokens {} -> {}", self.context_budget_tokens, defaults["context_budget_tokens"])
-            self.context_budget_tokens = defaults["context_budget_tokens"]
         # Restore critical tools if they were somehow removed
         for name, backup in self._critical_tool_backup.items():
             if not self.tools.has(name):

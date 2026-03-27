@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -47,9 +46,11 @@ class SelfTool(Tool):
     RESTRICTED: dict[str, dict[str, Any]] = {
         "max_iterations":        {"type": int, "min": 1,   "max": 100},
         "context_window_tokens": {"type": int, "min": 4096, "max": 1_000_000},
-        "context_budget_tokens": {"type": int, "min": 0,    "max": 1_000_000},
         "model":                 {"type": str, "min_len": 1},
     }
+
+    # Max number of elements (list items + dict entries summed recursively) per value
+    _MAX_VALUE_ELEMENTS = 1024
 
     def __init__(self, loop: AgentLoop) -> None:
         self._loop = loop
@@ -157,10 +158,9 @@ class SelfTool(Tool):
             return f"_unregistered_tools: {list(self._loop._unregistered_tools.keys())}"
         if key in self.BLOCKED or key.startswith("__") or key in self._DENIED_ATTRS:
             return f"Error: '{key}' is not accessible"
-        val = getattr(self._loop, key, None)
-        if val is None:
-            return "'{key}' not found on agent".format(key=key)
-        return f"{key}: {val!r}"
+        if not hasattr(self._loop, key):
+            return f"'{key}' not found on agent"
+        return f"{key}: {getattr(self._loop, key)!r}"
 
     def _inspect_all(self) -> str:
         loop = self._loop
@@ -173,7 +173,8 @@ class SelfTool(Tool):
             val = getattr(loop, k, None)
             if val is not None:
                 parts.append(f"{k}: {val!r}")
-        # Tools
+        # Tools (intentionally exposed here for operational visibility,
+        # even though 'tools' is BLOCKED for single-key inspect/modify)
         parts.append(f"tools: {loop.tools.tool_names}")
         # Runtime vars (limit output size)
         rv = loop._runtime_vars
@@ -199,10 +200,7 @@ class SelfTool(Tool):
     def _modify(self, key: str | None, value: Any) -> str:
         if err := self._validate_key(key):
             return err
-        if key in self.BLOCKED or key.startswith("__"):
-            self._audit("modify", f"BLOCKED {key}")
-            return f"Error: '{key}' is protected and cannot be modified"
-        if key in self.BLOCKED:
+        if key in self.BLOCKED or key.startswith("__") or key in self._DENIED_ATTRS:
             self._audit("modify", f"BLOCKED {key}")
             return f"Error: '{key}' is protected and cannot be modified"
         if key in self.READONLY:
@@ -248,28 +246,43 @@ class SelfTool(Tool):
         if err:
             self._audit("modify", f"REJECTED {key}: {err}")
             return f"Error: {err}"
+        # Limit total keys to prevent unbounded memory growth
+        if key not in self._loop._runtime_vars and len(self._loop._runtime_vars) >= 64:
+            self._audit("modify", f"REJECTED {key}: max keys (64) reached")
+            return "Error: _runtime_vars is full (max 64 keys). Reset unused keys first."
         old = self._loop._runtime_vars.get(key)
         self._loop._runtime_vars[key] = value
         self._audit("modify", f"_runtime_vars.{key}: {old!r} -> {value!r}")
         return f"Set _runtime_vars.{key} = {value!r}"
 
-    @staticmethod
-    def _validate_json_safe(value: Any, depth: int = 0) -> str | None:
-        """Validate that value is JSON-safe (no nested references to live objects)."""
+    @classmethod
+    def _validate_json_safe(cls, value: Any, depth: int = 0, elements: int = 0) -> str | None:
+        """Validate that value is JSON-safe (no nested references to live objects).
+
+        Returns an error string if validation fails, or None if the value is safe.
+        ``elements`` tracks the cumulative count of list items + dict entries to
+        enforce a per-value size cap.
+        """
         if depth > 10:
             return "value nesting too deep (max 10 levels)"
         if isinstance(value, (str, int, float, bool, type(None))):
             return None
         if isinstance(value, list):
+            elements += len(value)
+            if elements > cls._MAX_VALUE_ELEMENTS:
+                return f"value too large (max {cls._MAX_VALUE_ELEMENTS} total elements)"
             for i, item in enumerate(value):
-                if err := SelfTool._validate_json_safe(item, depth + 1):
+                if err := cls._validate_json_safe(item, depth + 1, elements):
                     return f"list[{i}] contains {err}"
             return None
         if isinstance(value, dict):
+            elements += len(value)
+            if elements > cls._MAX_VALUE_ELEMENTS:
+                return f"value too large (max {cls._MAX_VALUE_ELEMENTS} total elements)"
             for k, v in value.items():
                 if not isinstance(k, str):
                     return f"dict key must be str, got {type(k).__name__}"
-                if err := SelfTool._validate_json_safe(v, depth + 1):
+                if err := cls._validate_json_safe(v, depth + 1, elements):
                     return f"dict key '{k}' contains {err}"
             return None
         return f"unsupported type {type(value).__name__}"
@@ -313,9 +326,9 @@ class SelfTool(Tool):
         if key in self.READONLY:
             return f"Error: '{key}' is read-only (already at its configured value)"
         if key in self.RESTRICTED:
-            default = self._loop._config_defaults.get(key)
-            if default is None:
+            if key not in self._loop._config_defaults:
                 return f"Error: no config default for '{key}'"
+            default = self._loop._config_defaults[key]
             old = getattr(self._loop, key)
             setattr(self._loop, key, default)
             self._audit("reset", f"{key}: {old!r} -> {default!r}")
