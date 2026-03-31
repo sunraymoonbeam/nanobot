@@ -78,6 +78,7 @@ class Nanobot:
             exec_config=config.tools.exec,
             restrict_to_workspace=config.tools.restrict_to_workspace,
             mcp_servers=config.tools.mcp_servers,
+            lark_tools_config=config.tools.lark,
             timezone=defaults.timezone,
         )
         return cls(loop)

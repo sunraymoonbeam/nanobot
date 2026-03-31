@@ -33,7 +33,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, WebSearchConfig
+    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, LarkToolsConfig, WebSearchConfig
     from nanobot.cron.service import CronService
 
 
@@ -172,6 +172,7 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        lark_tools_config: LarkToolsConfig | None = None,
         timezone: str | None = None,
         hooks: list[AgentHook] | None = None,
     ):
@@ -179,6 +180,7 @@ class AgentLoop:
 
         self.bus = bus
         self.channels_config = channels_config
+        self._lark_tools_config = lark_tools_config
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
@@ -257,6 +259,24 @@ class AgentLoop:
             self.tools.register(
                 CronTool(self.cron_service, default_timezone=self.context.timezone or "UTC")
             )
+
+        # Lark tools — auto-register if Feishu channel has credentials
+        lark_cfg = self._lark_tools_config
+        if lark_cfg and lark_cfg.enabled and self.channels_config:
+            feishu_raw = self.channels_config.model_extra.get("feishu", {})
+            if isinstance(feishu_raw, dict):
+                app_id = feishu_raw.get("appId", "") or feishu_raw.get("app_id", "")
+                app_secret = feishu_raw.get("appSecret", "") or feishu_raw.get("app_secret", "")
+                domain = feishu_raw.get("domain", "feishu")
+                if app_id and app_secret:
+                    try:
+                        from nanobot.agent.tools.lark import register_lark_tools
+                        from nanobot.agent.tools.lark.client import LarkClientFactory
+                        factory = LarkClientFactory(app_id, app_secret, domain)
+                        register_lark_tools(self.tools, factory, lark_cfg.tools)
+                        logger.info("Registered Lark tools from Feishu channel config")
+                    except Exception as e:
+                        logger.warning("Failed to register Lark tools: {}", e)
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""

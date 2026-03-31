@@ -252,6 +252,7 @@ class FeishuConfig(Base):
     group_policy: Literal["open", "mention"] = "mention"
     reply_to_message: bool = False  # If True, bot replies quote the user's original message
     streaming: bool = True
+    domain: Literal["feishu", "lark"] = "feishu"
 
 
 _STREAM_ELEMENT_ID = "streaming_md"
@@ -320,11 +321,13 @@ class FeishuChannel(BaseChannel):
         self._loop = asyncio.get_running_loop()
 
         # Create Lark client for sending messages
-        self._client = lark.Client.builder() \
+        client_builder = lark.Client.builder() \
             .app_id(self.config.app_id) \
             .app_secret(self.config.app_secret) \
-            .log_level(lark.LogLevel.INFO) \
-            .build()
+            .log_level(lark.LogLevel.INFO)
+        if self.config.domain == "lark":
+            client_builder = client_builder.domain(lark.LARK_DOMAIN)
+        self._client = client_builder.build()
         builder = lark.EventDispatcherHandler.builder(
             self.config.encrypt_key or "",
             self.config.verification_token or "",
@@ -345,12 +348,15 @@ class FeishuChannel(BaseChannel):
         event_handler = builder.build()
 
         # Create WebSocket client for long connection
-        self._ws_client = lark.ws.Client(
-            self.config.app_id,
-            self.config.app_secret,
+        ws_kwargs = dict(
+            app_id=self.config.app_id,
+            app_secret=self.config.app_secret,
             event_handler=event_handler,
-            log_level=lark.LogLevel.INFO
+            log_level=lark.LogLevel.INFO,
         )
+        if self.config.domain == "lark":
+            ws_kwargs["domain"] = lark.LARK_DOMAIN
+        self._ws_client = lark.ws.Client(**ws_kwargs)
 
         # Start WebSocket client in a separate thread with reconnect loop.
         # A dedicated event loop is created for this thread so that lark_oapi's

@@ -546,6 +546,7 @@ def serve(
         session_manager=session_manager,
         mcp_servers=runtime_config.tools.mcp_servers,
         channels_config=runtime_config.channels,
+        lark_tools_config=runtime_config.tools.lark,
         timezone=runtime_config.agents.defaults.timezone,
     )
 
@@ -634,6 +635,7 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        lark_tools_config=config.tools.lark,
         timezone=config.agents.defaults.timezone,
     )
 
@@ -839,6 +841,7 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        lark_tools_config=config.tools.lark,
         timezone=config.agents.defaults.timezone,
     )
 
