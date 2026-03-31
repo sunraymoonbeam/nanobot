@@ -149,6 +149,17 @@ class MCPServerConfig(Base):
     tool_timeout: int = 30  # seconds before a tool call is cancelled
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all tools; [] = no tools
 
+class LarkToolsConfig(Base):
+    """Lark/Feishu tool integration — auto-enabled when Feishu channel is configured."""
+
+    enabled: bool = True
+    tools: dict[str, bool] = Field(default_factory=lambda: {
+        "doc": True, "wiki": True, "drive": True, "chat": True,
+        "bitable": True, "task": True, "perm": False,  # perm disabled by default (sensitive)
+        "urgent": True, "reactions": True, "calendar": True,
+    })
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
@@ -156,6 +167,7 @@ class ToolsConfig(Base):
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    lark: LarkToolsConfig = Field(default_factory=LarkToolsConfig)
 
 
 class Config(BaseSettings):
